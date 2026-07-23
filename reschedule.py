@@ -21,6 +21,24 @@ def log_message(message: str) -> None:
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] {message}")
 
+def send_email_notification(subject: str, body: str) -> None:
+    if not (GMAIL_EMAIL and GMAIL_APPLICATION_PWD and RECEIVER_EMAIL):
+        log_message("Email notification skipped: Gmail settings not configured")
+        return
+    try:
+        gmail = GMail(f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", GMAIL_APPLICATION_PWD)
+        msg = Message(
+            subject,
+            to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
+            text=body
+        )
+        gmail.send(msg)
+        gmail.close()
+        log_message(f"Email notification sent: {subject}")
+    except Exception as e:
+        log_message(f"Email notification failed (non-blocking): {e}")
+
+
 def get_chrome_driver() -> WebDriver:
     options = webdriver.ChromeOptions()
     if not SHOW_GUI:
@@ -123,23 +141,23 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
         latest_acceptable_date = datetime.strptime(LATEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
         if earliest_acceptable_date <= earliest_available_date <= latest_acceptable_date:
             # Check if the earliest available date falls in any of the excluded date ranges
+            excluded = False
             for i, (start, end) in enumerate(EXCLUSION_DATE_RANGES, 1):
                 if datetime.strptime(start, "%Y-%m-%d").date() <= earliest_available_date <= datetime.strptime(end, "%Y-%m-%d").date():
                     log_message(f"UH OH! Date falls in excluded date range: {start} to {end}")
-                    sleep(DATE_REQUEST_DELAY)
-                    continue
+                    excluded = True
+                    break
+            if excluded:
+                sleep(DATE_REQUEST_DELAY)
+                continue
             log_message(f"FOUND SLOT ON {earliest_available_date}!!!")
             try:
                 if legacy_reschedule(driver, earliest_available_date):
-                    gmail = GMail(f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", GMAIL_APPLICATION_PWD)
-                    msg = Message(
-                        f"Visa Appointment Rescheduled for {earliest_available_date}",
-                        to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
-                        text=f"Your visa appointment has been successfully rescheduled to {earliest_available_date} at {USER_CONSULATE} consulate."
-                    )
-                    gmail.send(msg)
-                    gmail.close()
                     log_message("SUCCESSFULLY RESCHEDULED!!!")
+                    send_email_notification(
+                        f"Visa Appointment Rescheduled for {earliest_available_date}",
+                        f"Your visa appointment has been successfully rescheduled to {earliest_available_date} at {USER_CONSULATE} consulate."
+                    )
                     return True
                 return False
             except Exception as e:
@@ -196,14 +214,10 @@ if __name__ == "__main__":
         session_count += 1
         log_message(f"Attempting with new session #{session_count}")
         rescheduled = reschedule_with_new_session()
-        sleep(NEW_SESSION_DELAY)
         if rescheduled:
             break
-    gmail = GMail(f"{GMAIL_SENDER_NAME} <{GMAIL_EMAIL}>", GMAIL_APPLICATION_PWD)
-    msg = Message(
-        f"Rescheduler Program Exited",
-        to=f"{RECEIVER_NAME} <{RECEIVER_EMAIL}>",
-        text=f"The rescheduler program has exited on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
+        sleep(NEW_SESSION_DELAY)
+    send_email_notification(
+        "Rescheduler Program Exited",
+        f"The rescheduler program has exited on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
     )
-    gmail.send(msg)
-    gmail.close()

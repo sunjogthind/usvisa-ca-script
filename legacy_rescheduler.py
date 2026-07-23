@@ -45,10 +45,12 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
         return False
 
     # Check the nearest slot is avalible in # months (0 for this month, 1 for next month...) and move to the month
-    def nearest_ava():
+    def nearest_ava(max_months: int = 24):
         ava_in = 0
         cur = cur_month_ava()
         while not cur:
+            if ava_in >= max_months:
+                raise RuntimeError(f"No available date found within {max_months} months")
             next_month()
             cur = cur_month_ava()
             ava_in += 1
@@ -65,6 +67,9 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
         if date.get_attribute("class") == " undefined":
             ava_date_btn = date.find_element(By.TAG_NAME, "a")
             break
+    if ava_date_btn is None:
+        print(f"{datetime.now().strftime('%H:%M:%S')} No clickable date found in calendar\n")
+        return False
     ava_date_btn.click()
 
     # confirm selected date
@@ -103,11 +108,13 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
         confirm = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "/html/body/div[6]/div/div/a[2]"))
         )
-    finally:
-        sleep(2)
-        driver.implicitly_wait(0.1)
-        if not TEST_MODE:
-            confirm.click()
-            return True
-
-    return False
+    except Exception as e:
+        print(f"{datetime.now().strftime('%H:%M:%S')} Confirmation dialog not found: {e}\n")
+        return False
+    sleep(2)
+    driver.implicitly_wait(0.1)
+    if TEST_MODE:
+        print(f"{datetime.now().strftime('%H:%M:%S')} TEST_MODE enabled - skipping final confirmation click\n")
+        return False
+    confirm.click()
+    return True

@@ -51,6 +51,18 @@ CONSULATES = {
 # Choose a city from the list above
 USER_CONSULATE = os.getenv("USER_CONSULATE")
 
+_missing = [name for name, value in [
+    ("USER_EMAIL", USER_EMAIL),
+    ("USER_PASSWORD", USER_PASSWORD),
+    ("EARLIEST_ACCEPTABLE_DATE", EARLIEST_ACCEPTABLE_DATE),
+    ("LATEST_ACCEPTABLE_DATE", LATEST_ACCEPTABLE_DATE),
+    ("USER_CONSULATE", USER_CONSULATE),
+] if not value]
+if _missing:
+    raise SystemExit(f"Missing required .env variables: {', '.join(_missing)}")
+if USER_CONSULATE not in CONSULATES:
+    raise SystemExit(f"USER_CONSULATE must be one of: {', '.join(CONSULATES)}")
+
 # The following is only required for the Gmail notification feature
 # Gmail login info
 GMAIL_SENDER_NAME = os.getenv("GMAIL_SENDER_NAME")
@@ -65,11 +77,11 @@ RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 # from local import *
 
 # See the automation in action
-SHOW_GUI = False  # toggle to false if you don't want to see the browser
+SHOW_GUI = True  # toggle to false if you don't want to see the browser
 
 # If you just want to see the program run WITHOUT clicking the confirm reschedule button
 # For testing, also set a date really far away so the app actually tries to reschedule
-TEST_MODE = False
+TEST_MODE = True
 
 # Don't change the following unless you know what you are doing
 DETACH = True
