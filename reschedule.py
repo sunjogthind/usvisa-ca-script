@@ -22,6 +22,9 @@ class SoftBanDetected(Exception):
     pass
 
 
+soft_ban_streak = 0
+
+
 def log_message(message: str) -> None:
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] {message}")
@@ -150,6 +153,10 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
             continue
         if len(dates) == 0:
             raise SoftBanDetected
+        global soft_ban_streak
+        if soft_ban_streak > 0:
+            log_message("Date list is flowing again - resetting soft-ban backoff")
+            soft_ban_streak = 0
         earliest_acceptable_date = datetime.strptime(EARLIEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
         latest_acceptable_date = datetime.strptime(LATEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
         target_date = None
@@ -216,8 +223,11 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
         return reschedule(driver, retryCount)
     except SoftBanDetected:
         driver.quit()
-        log_message(f"Empty date list received - likely soft-banned by the server. Cooling down for {SOFT_BAN_COOLDOWN // 60} minutes before retrying")
-        sleep(SOFT_BAN_COOLDOWN)
+        global soft_ban_streak
+        soft_ban_streak += 1
+        cooldown = min(SOFT_BAN_COOLDOWN * (2 ** (soft_ban_streak - 1)), SOFT_BAN_COOLDOWN_MAX)
+        log_message(f"Empty date list received - likely soft-banned by the server (streak: {soft_ban_streak}). Cooling down for {cooldown // 60} minutes before retrying")
+        sleep(cooldown)
         return False
     finally:
         driver.quit()

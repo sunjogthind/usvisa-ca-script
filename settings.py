@@ -94,6 +94,7 @@ DATE_REQUEST_JITTER = 60
 DATE_REQUEST_MAX_RETRY = 5
 DATE_REQUEST_MAX_TIME = 15 * 60
 SOFT_BAN_COOLDOWN = 60 * 60
+SOFT_BAN_COOLDOWN_MAX = 4 * 60 * 60
 LOGIN_URL = "https://ais.usvisa-info.com/en-ca/niv/users/sign_in"
 AVAILABLE_DATE_REQUEST_SUFFIX = f"/days/{CONSULATES[USER_CONSULATE]}.json?appointments[expedite]=false"
 APPOINTMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/appointment"
