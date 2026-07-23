@@ -150,27 +150,29 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
             continue
         if len(dates) == 0:
             raise SoftBanDetected
-        earliest_available_date = dates[0]
         earliest_acceptable_date = datetime.strptime(EARLIEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
         latest_acceptable_date = datetime.strptime(LATEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
-        if earliest_acceptable_date <= earliest_available_date <= latest_acceptable_date:
-            # Check if the earliest available date falls in any of the excluded date ranges
+        target_date = None
+        for candidate in sorted(dates):
+            if not (earliest_acceptable_date <= candidate <= latest_acceptable_date):
+                continue
             excluded = False
             for i, (start, end) in enumerate(EXCLUSION_DATE_RANGES, 1):
-                if datetime.strptime(start, "%Y-%m-%d").date() <= earliest_available_date <= datetime.strptime(end, "%Y-%m-%d").date():
-                    log_message(f"UH OH! Date falls in excluded date range: {start} to {end}")
+                if datetime.strptime(start, "%Y-%m-%d").date() <= candidate <= datetime.strptime(end, "%Y-%m-%d").date():
+                    log_message(f"Skipping {candidate}: falls in excluded date range {start} to {end}")
                     excluded = True
                     break
-            if excluded:
-                sleep(jittered_delay(DATE_REQUEST_DELAY))
-                continue
-            log_message(f"FOUND SLOT ON {earliest_available_date}!!!")
+            if not excluded:
+                target_date = candidate
+                break
+        if target_date is not None:
+            log_message(f"FOUND SLOT ON {target_date}!!!")
             try:
-                if legacy_reschedule(driver, earliest_available_date):
+                if legacy_reschedule(driver, target_date):
                     log_message("SUCCESSFULLY RESCHEDULED!!!")
                     send_email_notification(
-                        f"Visa Appointment Rescheduled for {earliest_available_date}",
-                        f"Your visa appointment has been successfully rescheduled to {earliest_available_date} at {USER_CONSULATE} consulate."
+                        f"Visa Appointment Rescheduled for {target_date}",
+                        f"Your visa appointment has been successfully rescheduled to {target_date} at {USER_CONSULATE} consulate."
                     )
                     return True
                 return False
@@ -178,7 +180,7 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                 log_message(f"STOPPING: {e}")
                 send_email_notification(
                     "Visa Rescheduler: MANUAL VERIFICATION NEEDED",
-                    f"The rescheduler clicked confirm for {earliest_available_date} at {USER_CONSULATE} but could not verify success. "
+                    f"The rescheduler clicked confirm for {target_date} at {USER_CONSULATE} but could not verify success. "
                     "Please log in to ais.usvisa-info.com and check your appointment. The program has stopped to avoid wasting reschedule attempts."
                 )
                 return True
@@ -187,7 +189,7 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                 traceback.print_exc()
                 continue
         else:
-            log_message(f"Earliest available date is {earliest_available_date}")
+            log_message(f"No acceptable date found. Earliest available date is {dates[0]}")
         sleep(jittered_delay(DATE_REQUEST_DELAY))
     return False
 

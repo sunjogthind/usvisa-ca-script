@@ -38,42 +38,32 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
     def next_month():
         driver.find_element(By.XPATH, "//div[@id='ui-datepicker-div']/div[2]/div/a").click()
 
-    # Check if avalible in current month
-    def cur_month_ava():
+    # Find the clickable cell for the exact target date in the currently displayed month
+    def find_target_date_btn():
         month = driver.find_element(By.XPATH, "//div[@id='ui-datepicker-div']/div[1]/table/tbody")
-        dates = month.find_elements(By.TAG_NAME, "td")
-        for date in dates:
-            if date.get_attribute("class") == " undefined":
-                ava_date_btn = date.find_element(By.TAG_NAME, "a")
-                return True
-        return False
+        cells = month.find_elements(By.TAG_NAME, "td")
+        for cell in cells:
+            if cell.get_attribute("class") != " undefined":
+                continue
+            if (cell.get_attribute("data-year") == str(date_to_book.year)
+                    and cell.get_attribute("data-month") == str(date_to_book.month - 1)):
+                btn = cell.find_element(By.TAG_NAME, "a")
+                if btn.text.strip() == str(date_to_book.day):
+                    return btn
+        return None
 
-    # Check the nearest slot is avalible in # months (0 for this month, 1 for next month...) and move to the month
-    def nearest_ava(max_months: int = 24):
-        ava_in = 0
-        cur = cur_month_ava()
-        while not cur:
-            if ava_in >= max_months:
-                raise RuntimeError(f"No available date found within {max_months} months")
-            next_month()
-            cur = cur_month_ava()
-            ava_in += 1
-        return ava_in
-
-    avalible_in_months = nearest_ava()
-
-    # Reschedule if the avalible_in_months is less than or equal to wait month
-    print("Trying to pick time and reschedule...")
-    month = driver.find_element(By.XPATH, "//div[@id='ui-datepicker-div']/div[1]/table/tbody")
-    dates = month.find_elements(By.TAG_NAME, "td")
-    ava_date_btn = None
-    for date in dates:
-        if date.get_attribute("class") == " undefined":
-            ava_date_btn = date.find_element(By.TAG_NAME, "a")
-            break
+    print(f"Looking for {date_to_book} in calendar...")
+    ava_date_btn = find_target_date_btn()
+    months_moved = 0
+    while ava_date_btn is None and months_moved < 36:
+        next_month()
+        months_moved += 1
+        ava_date_btn = find_target_date_btn()
     if ava_date_btn is None:
-        print(f"{datetime.now().strftime('%H:%M:%S')} No clickable date found in calendar\n")
+        print(f"{datetime.now().strftime('%H:%M:%S')} SLOT '{date_to_book}' not found in calendar - no longer available\n")
         return False
+
+    print("Trying to pick time and reschedule...")
     ava_date_btn.click()
 
     # confirm selected date
@@ -87,8 +77,8 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
     )
     date_selected = datetime.strptime(date_box.get_attribute('value'), "%Y-%m-%d").date()
     print(date_selected)
-    if not date_selected <= date_to_book:
-        print(f"{datetime.now().strftime('%H:%M:%S')} SLOT '{date_to_book}' no longer available\n")
+    if date_selected != date_to_book:
+        print(f"{datetime.now().strftime('%H:%M:%S')} Selected date '{date_selected}' does not match target '{date_to_book}' - aborting\n")
         return False
     else:
         print(f"{datetime.now().strftime('%H:%M:%S')} SLOT '{date_selected}' is still available. Booking....\n")
