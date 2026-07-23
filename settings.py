@@ -81,7 +81,7 @@ SHOW_GUI = True  # toggle to false if you don't want to see the browser
 
 # If you just want to see the program run WITHOUT clicking the confirm reschedule button
 # For testing, also set a date really far away so the app actually tries to reschedule
-TEST_MODE = True
+TEST_MODE = False
 
 # Don't change the following unless you know what you are doing
 DETACH = False

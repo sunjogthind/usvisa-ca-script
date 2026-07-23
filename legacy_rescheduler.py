@@ -8,6 +8,10 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 
 from settings import TEST_MODE, NUM_PARTICIPANTS
 
+
+class UnverifiedReschedule(Exception):
+    pass
+
 # This is frankly very, very bad and should be rewritten with requests
 # when I get a test account
 def legacy_reschedule(driver: WebDriver, date_to_book: date):
@@ -134,5 +138,8 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
         print(f"{datetime.now().strftime('%H:%M:%S')} Reschedule likely succeeded (appointment form closed). PLEASE VERIFY YOUR APPOINTMENT MANUALLY at ais.usvisa-info.com\n")
         return True
     except Exception:
-        print(f"{datetime.now().strftime('%H:%M:%S')} WARNING: Could not verify reschedule success - appointment form still present. Treating as FAILED. PLEASE CHECK YOUR APPOINTMENT MANUALLY at ais.usvisa-info.com\n")
-        return False
+        raise UnverifiedReschedule(
+            "Confirm was clicked but reschedule success could not be verified. "
+            "Stopping to avoid wasting limited reschedule attempts. "
+            "PLEASE CHECK YOUR APPOINTMENT MANUALLY at ais.usvisa-info.com"
+        )

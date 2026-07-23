@@ -13,7 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from legacy.gmail import GMail, Message
-from legacy_rescheduler import legacy_reschedule
+from legacy_rescheduler import legacy_reschedule, UnverifiedReschedule
 from request_tracker import RequestTracker
 from settings import *
 
@@ -174,6 +174,14 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                     )
                     return True
                 return False
+            except UnverifiedReschedule as e:
+                log_message(f"STOPPING: {e}")
+                send_email_notification(
+                    "Visa Rescheduler: MANUAL VERIFICATION NEEDED",
+                    f"The rescheduler clicked confirm for {earliest_available_date} at {USER_CONSULATE} but could not verify success. "
+                    "Please log in to ais.usvisa-info.com and check your appointment. The program has stopped to avoid wasting reschedule attempts."
+                )
+                return True
             except Exception as e:
                 log_message(f"Rescheduling failed: {e}")
                 traceback.print_exc()
