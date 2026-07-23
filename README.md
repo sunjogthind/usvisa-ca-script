@@ -80,6 +80,16 @@ See the script in action. Once you're satisfied with its functionality, set `TES
 
 Note `detect_and_notify.py` is no longer maintained.
 
+## Rate limits and run frequency
+
+You do not need a cron job — the script loops continuously on its own, polling every `DATE_REQUEST_DELAY` seconds (default 180s, plus up to `DATE_REQUEST_JITTER` seconds of random jitter to look less bot-like).
+
+The server soft-bans aggressive polling by returning an empty date list (reported after roughly 50-110 requests, with bans lasting hours). To reduce the risk:
+
+- The script now detects an empty date list, closes the browser, and cools down for `SOFT_BAN_COOLDOWN` seconds (default 1 hour) before retrying
+- `DETACH` now defaults to `False` so old Chrome sessions no longer stay open in the background making extra requests
+- Avoid lowering `DATE_REQUEST_DELAY` below 180 seconds; if you keep getting soft-banned, raise it to 600s or more
+
 ## Caution
 
 It may not always be feasible to reschedule an appointment multiple times. Therefore, it's crucial to use `TEST_MODE = True` for testing purposes and ensure the `LATEST_ACCEPTABLE_DATE` is genuinely acceptable to you.

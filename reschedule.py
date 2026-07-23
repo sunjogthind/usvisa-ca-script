@@ -1,3 +1,4 @@
+import random
 import re
 import traceback
 from datetime import datetime
@@ -17,9 +18,17 @@ from request_tracker import RequestTracker
 from settings import *
 
 
+class SoftBanDetected(Exception):
+    pass
+
+
 def log_message(message: str) -> None:
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] {message}")
+
+
+def jittered_delay(base_delay: float) -> float:
+    return base_delay + random.uniform(0, DATE_REQUEST_JITTER)
 
 def send_email_notification(subject: str, body: str) -> None:
     if not (GMAIL_EMAIL and GMAIL_APPLICATION_PWD and RECEIVER_EMAIL):
@@ -113,13 +122,16 @@ def get_available_dates(
         return None
     if response.status_code != 200:
         log_message(f"Failed with status code {response.status_code}")
-        log_message(f"Response Text: {response.text}")
+        log_message(f"Response Text: {response.text[:300]}")
         return None
     try:
         dates_json = response.json()
     except:
-        log_message("Failed to decode json")
-        log_message(f"Response Text: {response.text}")
+        if "sign_in" in response.text or response.text.lstrip().startswith("<"):
+            log_message("Received HTML instead of JSON - session likely expired or request was blocked, starting a new session")
+        else:
+            log_message("Failed to decode json")
+        log_message(f"Response Text: {response.text[:300]}")
         return None
     dates = [datetime.strptime(item["date"], "%Y-%m-%d").date() for item in dates_json]
     return dates
@@ -132,10 +144,12 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
     )
     while date_request_tracker.should_retry():
         dates = get_available_dates(driver, date_request_tracker)
-        if not dates:
+        if dates is None:
             log_message("Error occured when requesting available dates")
-            sleep(DATE_REQUEST_DELAY)
+            sleep(jittered_delay(DATE_REQUEST_DELAY))
             continue
+        if len(dates) == 0:
+            raise SoftBanDetected
         earliest_available_date = dates[0]
         earliest_acceptable_date = datetime.strptime(EARLIEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
         latest_acceptable_date = datetime.strptime(LATEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
@@ -148,7 +162,7 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                     excluded = True
                     break
             if excluded:
-                sleep(DATE_REQUEST_DELAY)
+                sleep(jittered_delay(DATE_REQUEST_DELAY))
                 continue
             log_message(f"FOUND SLOT ON {earliest_available_date}!!!")
             try:
@@ -166,34 +180,37 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                 continue
         else:
             log_message(f"Earliest available date is {earliest_available_date}")
-        sleep(DATE_REQUEST_DELAY)
+        sleep(jittered_delay(DATE_REQUEST_DELAY))
     return False
 
 
 def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> bool:
     driver = get_chrome_driver()
-    session_failures = 0
-    timeout = TIMEOUT
-    while session_failures < NEW_SESSION_AFTER_FAILURES:
-        try:
-            login(driver)
-            get_appointment_page(driver)
-            policy_checkbox_limit = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((By.CLASS_NAME, "icheckbox")))
-            policy_checkbox_limit.click()
-            continue_button = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((By.NAME, "commit")))
-            continue_button.click() 
-            break
-        except Exception as e:
-            log_message(f"Unable to get appointment page: {e}")
-            session_failures += 1
-            sleep(FAIL_RETRY_DELAY)
-            continue
-    rescheduled = reschedule(driver, retryCount)
-    driver.quit()
-    if rescheduled:
-        return True
-    else:
+    try:
+        session_failures = 0
+        timeout = TIMEOUT
+        while session_failures < NEW_SESSION_AFTER_FAILURES:
+            try:
+                login(driver)
+                get_appointment_page(driver)
+                policy_checkbox_limit = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((By.CLASS_NAME, "icheckbox")))
+                policy_checkbox_limit.click()
+                continue_button = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((By.NAME, "commit")))
+                continue_button.click() 
+                break
+            except Exception as e:
+                log_message(f"Unable to get appointment page: {e}")
+                session_failures += 1
+                sleep(FAIL_RETRY_DELAY)
+                continue
+        return reschedule(driver, retryCount)
+    except SoftBanDetected:
+        driver.quit()
+        log_message(f"Empty date list received - likely soft-banned by the server. Cooling down for {SOFT_BAN_COOLDOWN // 60} minutes before retrying")
+        sleep(SOFT_BAN_COOLDOWN)
         return False
+    finally:
+        driver.quit()
 
 
 if __name__ == "__main__":

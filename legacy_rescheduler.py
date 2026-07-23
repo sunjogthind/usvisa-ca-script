@@ -117,4 +117,22 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
         print(f"{datetime.now().strftime('%H:%M:%S')} TEST_MODE enabled - skipping final confirmation click\n")
         return False
     confirm.click()
-    return True
+    sleep(5)
+    page_source = driver.page_source.lower()
+    success_indicators = [
+        "successfully scheduled",
+        "successfully rescheduled",
+        "you have successfully",
+    ]
+    if any(indicator in page_source for indicator in success_indicators):
+        print(f"{datetime.now().strftime('%H:%M:%S')} Reschedule confirmed by page message\n")
+        return True
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.invisibility_of_element_located((By.ID, "appointments_consulate_appointment_date_input"))
+        )
+        print(f"{datetime.now().strftime('%H:%M:%S')} Reschedule likely succeeded (appointment form closed). PLEASE VERIFY YOUR APPOINTMENT MANUALLY at ais.usvisa-info.com\n")
+        return True
+    except Exception:
+        print(f"{datetime.now().strftime('%H:%M:%S')} WARNING: Could not verify reschedule success - appointment form still present. Treating as FAILED. PLEASE CHECK YOUR APPOINTMENT MANUALLY at ais.usvisa-info.com\n")
+        return False

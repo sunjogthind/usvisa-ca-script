@@ -84,14 +84,16 @@ SHOW_GUI = True  # toggle to false if you don't want to see the browser
 TEST_MODE = True
 
 # Don't change the following unless you know what you are doing
-DETACH = True
+DETACH = False
 NEW_SESSION_AFTER_FAILURES = 5
 NEW_SESSION_DELAY = 300
 TIMEOUT = 10
 FAIL_RETRY_DELAY = 180
 DATE_REQUEST_DELAY = 180
+DATE_REQUEST_JITTER = 60
 DATE_REQUEST_MAX_RETRY = 5
 DATE_REQUEST_MAX_TIME = 15 * 60
+SOFT_BAN_COOLDOWN = 60 * 60
 LOGIN_URL = "https://ais.usvisa-info.com/en-ca/niv/users/sign_in"
 AVAILABLE_DATE_REQUEST_SUFFIX = f"/days/{CONSULATES[USER_CONSULATE]}.json?appointments[expedite]=false"
 APPOINTMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/appointment"
