@@ -1,7 +1,8 @@
 import random
 import re
+import shutil
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import sleep
 from typing import Union, List
 
@@ -33,6 +34,20 @@ def log_message(message: str) -> None:
 def jittered_delay(base_delay: float) -> float:
     return base_delay + random.uniform(0, DATE_REQUEST_JITTER)
 
+
+def seconds_until_poll_window() -> float:
+    """Return seconds to sleep until we're inside the allowed polling window.
+    Returns 0 if polling is allowed now (or the window is disabled)."""
+    if POLL_START_HOUR == POLL_END_HOUR:
+        return 0
+    now = datetime.now()
+    if POLL_START_HOUR <= now.hour < POLL_END_HOUR:
+        return 0
+    target = now.replace(hour=POLL_START_HOUR, minute=0, second=0, microsecond=0)
+    if now.hour >= POLL_END_HOUR:
+        target = target + timedelta(days=1)
+    return max(0, (target - now).total_seconds())
+
 def send_email_notification(subject: str, body: str) -> None:
     if not (GMAIL_EMAIL and GMAIL_APPLICATION_PWD and RECEIVER_EMAIL):
         log_message("Email notification skipped: Gmail settings not configured")
@@ -51,20 +66,23 @@ def send_email_notification(subject: str, body: str) -> None:
         log_message(f"Email notification failed (non-blocking): {e}")
 
 
-def get_chrome_driver() -> WebDriver:
+def get_chrome_driver() -> (WebDriver, str):
     options = webdriver.ChromeOptions()
+    user_agent = random.choice(USER_AGENTS)
     if not SHOW_GUI:
         options.add_argument("headless")
         options.add_argument("window-size=1920x1080")
         options.add_argument("disable-gpu")
-        options.add_argument('user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36')
+    options.add_argument(f'user-agent={user_agent}')
     options.add_experimental_option("detach", DETACH)
     options.add_argument('--incognito')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument(f'--user-data-dir=/tmp/chrome-{datetime.now().strftime("%Y%m%d-%H%M%S")}')
+    user_data_dir = f'/tmp/chrome-{datetime.now().strftime("%Y%m%d-%H%M%S")}-{random.randint(1000, 9999)}'
+    options.add_argument(f'--user-data-dir={user_data_dir}')
     driver = webdriver.Chrome(options=options)
-    return driver
+    log_message(f"New session using UA: ...{user_agent[-40:]}")
+    return driver, user_data_dir
 
 
 def login(driver: WebDriver) -> None:
@@ -118,6 +136,7 @@ def get_available_dates(
     request_headers = REQUEST_HEADERS.copy()
     request_headers["Cookie"] = request_header_cookie
     request_headers["User-Agent"] = driver.execute_script("return navigator.userAgent")
+    request_headers["Referer"] = driver.current_url
     try:
         response = requests.get(request_url, headers=request_headers)
     except Exception as e:
@@ -146,6 +165,9 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
         DATE_REQUEST_DELAY * retryCount if (retryCount > 0) else DATE_REQUEST_MAX_TIME
     )
     while date_request_tracker.should_retry():
+        if seconds_until_poll_window() > 0:
+            log_message("Polling window closed - ending session until it reopens")
+            return False
         dates = get_available_dates(driver, date_request_tracker)
         if dates is None:
             log_message("Error occured when requesting available dates")
@@ -196,13 +218,20 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                 traceback.print_exc()
                 continue
         else:
-            log_message(f"No acceptable date found. Earliest available date is {dates[0]}")
+            delay = jittered_delay(DATE_REQUEST_DELAY)
+            next_check = (datetime.now() + timedelta(seconds=delay)).strftime("%H:%M")
+            log_message(
+                f"{len(dates)} dates available, earliest {min(dates)} "
+                f"(outside {EARLIEST_ACCEPTABLE_DATE}..{LATEST_ACCEPTABLE_DATE}). Next check ~{next_check}"
+            )
+            sleep(delay)
+            continue
         sleep(jittered_delay(DATE_REQUEST_DELAY))
     return False
 
 
 def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> bool:
-    driver = get_chrome_driver()
+    driver, user_data_dir = get_chrome_driver()
     try:
         session_failures = 0
         timeout = TIMEOUT
@@ -222,7 +251,6 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
                 continue
         return reschedule(driver, retryCount)
     except SoftBanDetected:
-        driver.quit()
         global soft_ban_streak
         soft_ban_streak += 1
         cooldown = min(SOFT_BAN_COOLDOWN * (2 ** (soft_ban_streak - 1)), SOFT_BAN_COOLDOWN_MAX)
@@ -230,7 +258,11 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
         sleep(cooldown)
         return False
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        shutil.rmtree(user_data_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
@@ -247,7 +279,14 @@ if __name__ == "__main__":
     else:
         log_message("No date ranges excluded")
 
+    if POLL_START_HOUR != POLL_END_HOUR:
+        log_message(f"Polling window: {POLL_START_HOUR:02d}:00-{POLL_END_HOUR:02d}:00 local time")
+
     while True:
+        wait = seconds_until_poll_window()
+        if wait > 0:
+            log_message(f"Outside polling window - sleeping {int(wait // 60)} min until {POLL_START_HOUR:02d}:00")
+            sleep(wait)
         session_count += 1
         log_message(f"Attempting with new session #{session_count}")
         rescheduled = reschedule_with_new_session()

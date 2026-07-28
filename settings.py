@@ -77,7 +77,7 @@ RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 # from local import *
 
 # See the automation in action
-SHOW_GUI = True  # toggle to false if you don't want to see the browser
+SHOW_GUI = False  # toggle to false if you don't want to see the browser
 
 # If you just want to see the program run WITHOUT clicking the confirm reschedule button
 # For testing, also set a date really far away so the app actually tries to reschedule
@@ -89,16 +89,36 @@ NEW_SESSION_AFTER_FAILURES = 5
 NEW_SESSION_DELAY = 300
 TIMEOUT = 10
 FAIL_RETRY_DELAY = 180
-DATE_REQUEST_DELAY = 180
-DATE_REQUEST_JITTER = 60
-DATE_REQUEST_MAX_RETRY = 5
-DATE_REQUEST_MAX_TIME = 15 * 60
+DATE_REQUEST_DELAY = 300
+DATE_REQUEST_JITTER = 240
+DATE_REQUEST_MAX_RETRY = 20
+DATE_REQUEST_MAX_TIME = 90 * 60
 SOFT_BAN_COOLDOWN = 60 * 60
 SOFT_BAN_COOLDOWN_MAX = 4 * 60 * 60
+
+# Only poll during these local hours (24h). Slots are released during business
+# hours; polling overnight just burns requests and looks bot-like.
+# Set POLL_START_HOUR = POLL_END_HOUR to disable and poll 24/7.
+POLL_START_HOUR = 6
+POLL_END_HOUR = 20
+
+# Rotated per session so repeated visits don't share one fingerprint.
+USER_AGENTS = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+]
 LOGIN_URL = "https://ais.usvisa-info.com/en-ca/niv/users/sign_in"
 AVAILABLE_DATE_REQUEST_SUFFIX = f"/days/{CONSULATES[USER_CONSULATE]}.json?appointments[expedite]=false"
 APPOINTMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/appointment"
 PAYMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/payment"
 REQUEST_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
 }
