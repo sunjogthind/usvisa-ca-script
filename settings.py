@@ -73,6 +73,14 @@ GMAIL_APPLICATION_PWD = os.getenv("GMAIL_APPLICATION_PWD")
 RECEIVER_NAME = os.getenv("RECEIVER_NAME")
 RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
+# Free notification channels (no Gmail password needed)
+# ntfy.sh push: set NTFY_TOPIC in .env to a unique/hard-to-guess topic name,
+# install the ntfy app, and subscribe to that same topic. Leave blank to disable.
+NTFY_SERVER = os.getenv("NTFY_SERVER") or "https://ntfy.sh"
+NTFY_TOPIC = os.getenv("NTFY_TOPIC")
+# Local macOS desktop notification + sound (only useful while at the laptop).
+MACOS_NOTIFY = True
+
 # Override with local, for developers
 # from local import *
 

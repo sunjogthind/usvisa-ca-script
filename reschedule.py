@@ -1,6 +1,7 @@
 import random
 import re
 import shutil
+import subprocess
 import traceback
 from datetime import datetime, timedelta
 from time import sleep
@@ -24,6 +25,7 @@ class SoftBanDetected(Exception):
 
 
 soft_ban_streak = 0
+login_fail_streak = 0
 
 
 def log_message(message: str) -> None:
@@ -64,6 +66,40 @@ def send_email_notification(subject: str, body: str) -> None:
         log_message(f"Email notification sent: {subject}")
     except Exception as e:
         log_message(f"Email notification failed (non-blocking): {e}")
+
+
+def send_ntfy_notification(subject: str, body: str) -> None:
+    if not NTFY_TOPIC:
+        return
+    try:
+        requests.post(
+            f"{NTFY_SERVER.rstrip('/')}/{NTFY_TOPIC}",
+            data=body.encode("utf-8"),
+            headers={"Title": subject, "Priority": "high", "Tags": "calendar"},
+            timeout=10,
+        )
+        log_message(f"ntfy notification sent: {subject}")
+    except Exception as e:
+        log_message(f"ntfy notification failed (non-blocking): {e}")
+
+
+def send_macos_notification(subject: str, body: str) -> None:
+    if not MACOS_NOTIFY:
+        return
+    try:
+        safe_body = body.replace('"', "'")
+        safe_subject = subject.replace('"', "'")
+        script = f'display notification "{safe_body}" with title "{safe_subject}" sound name "Glass"'
+        subprocess.run(["osascript", "-e", script], timeout=10, check=False)
+    except Exception as e:
+        log_message(f"macOS notification failed (non-blocking): {e}")
+
+
+def send_notification(subject: str, body: str) -> None:
+    """Fire all configured notification channels. Each is non-blocking."""
+    send_email_notification(subject, body)
+    send_ntfy_notification(subject, body)
+    send_macos_notification(subject, body)
 
 
 def get_chrome_driver() -> (WebDriver, str):
@@ -199,7 +235,7 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
             try:
                 if legacy_reschedule(driver, target_date):
                     log_message("SUCCESSFULLY RESCHEDULED!!!")
-                    send_email_notification(
+                    send_notification(
                         f"Visa Appointment Rescheduled for {target_date}",
                         f"Your visa appointment has been successfully rescheduled to {target_date} at {USER_CONSULATE} consulate."
                     )
@@ -207,7 +243,7 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
                 return False
             except UnverifiedReschedule as e:
                 log_message(f"STOPPING: {e}")
-                send_email_notification(
+                send_notification(
                     "Visa Rescheduler: MANUAL VERIFICATION NEEDED",
                     f"The rescheduler clicked confirm for {target_date} at {USER_CONSULATE} but could not verify success. "
                     "Please log in to ais.usvisa-info.com and check your appointment. The program has stopped to avoid wasting reschedule attempts."
@@ -231,6 +267,7 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
 
 
 def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> bool:
+    global soft_ban_streak, login_fail_streak
     driver, user_data_dir = get_chrome_driver()
     try:
         session_failures = 0
@@ -249,12 +286,29 @@ def reschedule_with_new_session(retryCount: int = DATE_REQUEST_MAX_RETRY) -> boo
                 session_failures += 1
                 sleep(FAIL_RETRY_DELAY)
                 continue
+        else:
+            # Loop exhausted without a successful session setup (login/nav broken).
+            login_fail_streak += 1
+            log_message(f"Could not set up a session after {NEW_SESSION_AFTER_FAILURES} attempts (streak: {login_fail_streak})")
+            if login_fail_streak == 1:
+                send_notification(
+                    "Visa Bot: login/session failing",
+                    "The bot could not log in or reach the appointment page. This may mean the site is "
+                    "blocking automated access, your login is being challenged, or the site layout changed. "
+                    "It will keep retrying. Check ais.usvisa-info.com manually if this persists."
+                )
+            return False
+        login_fail_streak = 0
         return reschedule(driver, retryCount)
     except SoftBanDetected:
-        global soft_ban_streak
         soft_ban_streak += 1
         cooldown = min(SOFT_BAN_COOLDOWN * (2 ** (soft_ban_streak - 1)), SOFT_BAN_COOLDOWN_MAX)
         log_message(f"Empty date list received - likely soft-banned by the server (streak: {soft_ban_streak}). Cooling down for {cooldown // 60} minutes before retrying")
+        send_notification(
+            "Visa Bot: soft-banned, cooling down",
+            f"The server returned an empty date list (soft-ban streak {soft_ban_streak}). "
+            f"Pausing for {cooldown // 60} minutes, then a fresh session will retry automatically."
+        )
         sleep(cooldown)
         return False
     finally:
@@ -293,7 +347,7 @@ if __name__ == "__main__":
         if rescheduled:
             break
         sleep(NEW_SESSION_DELAY)
-    send_email_notification(
+    send_notification(
         "Rescheduler Program Exited",
         f"The rescheduler program has exited on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
     )
