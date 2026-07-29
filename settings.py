@@ -101,8 +101,8 @@ DATE_REQUEST_DELAY = 300
 DATE_REQUEST_JITTER = 240
 DATE_REQUEST_MAX_RETRY = 20
 DATE_REQUEST_MAX_TIME = 90 * 60
-SOFT_BAN_COOLDOWN = 60 * 60
-SOFT_BAN_COOLDOWN_MAX = 4 * 60 * 60
+SOFT_BAN_COOLDOWN = 20 * 60
+SOFT_BAN_COOLDOWN_MAX = 60 * 60
 
 # Only poll during these local hours (24h). Slots are released during business
 # hours; polling overnight just burns requests and looks bot-like.
