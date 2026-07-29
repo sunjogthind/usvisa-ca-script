@@ -68,14 +68,14 @@ def send_email_notification(subject: str, body: str) -> None:
         log_message(f"Email notification failed (non-blocking): {e}")
 
 
-def send_ntfy_notification(subject: str, body: str) -> None:
+def send_ntfy_notification(subject: str, body: str, priority: str = "high", tags: str = "calendar") -> None:
     if not NTFY_TOPIC:
         return
     try:
         requests.post(
             f"{NTFY_SERVER.rstrip('/')}/{NTFY_TOPIC}",
             data=body.encode("utf-8"),
-            headers={"Title": subject, "Priority": "high", "Tags": "calendar"},
+            headers={"Title": subject, "Priority": priority, "Tags": tags},
             timeout=10,
         )
         log_message(f"ntfy notification sent: {subject}")
@@ -83,23 +83,27 @@ def send_ntfy_notification(subject: str, body: str) -> None:
         log_message(f"ntfy notification failed (non-blocking): {e}")
 
 
-def send_macos_notification(subject: str, body: str) -> None:
+def send_macos_notification(subject: str, body: str, sound: bool = True) -> None:
     if not MACOS_NOTIFY:
         return
     try:
         safe_body = body.replace('"', "'")
         safe_subject = subject.replace('"', "'")
-        script = f'display notification "{safe_body}" with title "{safe_subject}" sound name "Glass"'
+        script = f'display notification "{safe_body}" with title "{safe_subject}"'
+        if sound:
+            script += ' sound name "Glass"'
         subprocess.run(["osascript", "-e", script], timeout=10, check=False)
     except Exception as e:
         log_message(f"macOS notification failed (non-blocking): {e}")
 
 
-def send_notification(subject: str, body: str) -> None:
-    """Fire all configured notification channels. Each is non-blocking."""
+def send_notification(subject: str, body: str, critical: bool = True) -> None:
+    """Fire all configured notification channels. Each is non-blocking.
+    critical=True uses high priority + sound (booking/failures); False is a quiet
+    status update (start/pause/resume)."""
     send_email_notification(subject, body)
-    send_ntfy_notification(subject, body)
-    send_macos_notification(subject, body)
+    send_ntfy_notification(subject, body, priority="high" if critical else "default")
+    send_macos_notification(subject, body, sound=critical)
 
 
 def get_chrome_driver() -> (WebDriver, str):
@@ -336,11 +340,29 @@ if __name__ == "__main__":
     if POLL_START_HOUR != POLL_END_HOUR:
         log_message(f"Polling window: {POLL_START_HOUR:02d}:00-{POLL_END_HOUR:02d}:00 local time")
 
+    send_notification(
+        "Visa Bot: started",
+        f"Now watching {USER_CONSULATE} for slots between {EARLIEST_ACCEPTABLE_DATE} and {LATEST_ACCEPTABLE_DATE}."
+        + (f" Polling window {POLL_START_HOUR:02d}:00-{POLL_END_HOUR:02d}:00." if POLL_START_HOUR != POLL_END_HOUR else ""),
+        critical=False,
+    )
+
     while True:
         wait = seconds_until_poll_window()
         if wait > 0:
             log_message(f"Outside polling window - sleeping {int(wait // 60)} min until {POLL_START_HOUR:02d}:00")
+            send_notification(
+                "Visa Bot: paused for the night",
+                f"Outside polling window ({POLL_START_HOUR:02d}:00-{POLL_END_HOUR:02d}:00). "
+                f"Sleeping ~{int(wait // 60)} min and resuming at {POLL_START_HOUR:02d}:00.",
+                critical=False,
+            )
             sleep(wait)
+            send_notification(
+                "Visa Bot: resumed",
+                f"Polling window reopened at {POLL_START_HOUR:02d}:00 - back to checking for slots.",
+                critical=False,
+            )
         session_count += 1
         log_message(f"Attempting with new session #{session_count}")
         rescheduled = reschedule_with_new_session()
