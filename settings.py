@@ -48,8 +48,10 @@ CONSULATES = {
     "Toronto": 94,
     "Vancouver": 95
 } # Only Toronto and Vancouver consulates are verified
-# Choose a city from the list above
+# Choose one or more cities from the list above.
+# For multiple, comma-separate them in .env, e.g. USER_CONSULATE="Vancouver,Calgary"
 USER_CONSULATE = os.getenv("USER_CONSULATE")
+USER_CONSULATES = [c.strip() for c in (USER_CONSULATE or "").split(",") if c.strip()]
 
 _missing = [name for name, value in [
     ("USER_EMAIL", USER_EMAIL),
@@ -60,8 +62,11 @@ _missing = [name for name, value in [
 ] if not value]
 if _missing:
     raise SystemExit(f"Missing required .env variables: {', '.join(_missing)}")
-if USER_CONSULATE not in CONSULATES:
-    raise SystemExit(f"USER_CONSULATE must be one of: {', '.join(CONSULATES)}")
+_invalid = [c for c in USER_CONSULATES if c not in CONSULATES]
+if not USER_CONSULATES:
+    raise SystemExit("USER_CONSULATE must name at least one city")
+if _invalid:
+    raise SystemExit(f"Unknown consulate(s) {', '.join(_invalid)}. Must be one of: {', '.join(CONSULATES)}")
 
 # The following is only required for the Gmail notification feature
 # Gmail login info
@@ -119,7 +124,8 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
 ]
 LOGIN_URL = "https://ais.usvisa-info.com/en-ca/niv/users/sign_in"
-AVAILABLE_DATE_REQUEST_SUFFIX = f"/days/{CONSULATES[USER_CONSULATE]}.json?appointments[expedite]=false"
+AVAILABLE_DATE_REQUEST_SUFFIX_TEMPLATE = "/days/{consulate_id}.json?appointments[expedite]=false"
+AVAILABLE_DATE_REQUEST_SUFFIX = AVAILABLE_DATE_REQUEST_SUFFIX_TEMPLATE.format(consulate_id=CONSULATES[USER_CONSULATES[0]])
 APPOINTMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/appointment"
 PAYMENT_PAGE_URL = "https://ais.usvisa-info.com/en-ca/niv/schedule/{id}/payment"
 REQUEST_HEADERS = {

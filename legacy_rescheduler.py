@@ -3,7 +3,7 @@ from datetime import datetime, date
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.chrome.webdriver import WebDriver
 
 from settings import TEST_MODE, NUM_PARTICIPANTS
@@ -14,7 +14,7 @@ class UnverifiedReschedule(Exception):
 
 # This is frankly very, very bad and should be rewritten with requests
 # when I get a test account
-def legacy_reschedule(driver: WebDriver, date_to_book: date):
+def legacy_reschedule(driver: WebDriver, date_to_book: date, consulate_id: int = None):
     driver.refresh()
 
     # Continue btn: applicable when there are more than one applicant for scheduling
@@ -23,6 +23,20 @@ def legacy_reschedule(driver: WebDriver, date_to_book: date):
                 EC.presence_of_element_located((By.XPATH, "//main[@id='main']/div[@class='mainContent']/form/div[2]/div/input"))
             )
         continueBtn.click()
+
+    # Select the target consulate/facility so the calendar loads its availability
+    if consulate_id is not None:
+        try:
+            facility_dropdown = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, "appointments_consulate_appointment_facility_id"))
+            )
+            current_value = facility_dropdown.get_attribute("value")
+            if current_value != str(consulate_id):
+                Select(facility_dropdown).select_by_value(str(consulate_id))
+                sleep(3)  # let the calendar reload for the newly selected facility
+        except Exception as e:
+            print(f"{datetime.now().strftime('%H:%M:%S')} Could not select facility {consulate_id}: {e}")
+            return False
 
     date_selection_box = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located(

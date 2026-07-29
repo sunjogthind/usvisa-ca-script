@@ -164,12 +164,13 @@ def get_appointment_page(driver: WebDriver) -> None:
 
 
 def get_available_dates(
-    driver: WebDriver, request_tracker: RequestTracker
+    driver: WebDriver, request_tracker: RequestTracker, consulate_id: int
 ) -> Union[List[datetime.date], None]:
     request_tracker.log_retry()
     request_tracker.retry()
     schedule_base = driver.current_url.split("/appointment")[0]
-    request_url = schedule_base + "/appointment" + AVAILABLE_DATE_REQUEST_SUFFIX
+    suffix = AVAILABLE_DATE_REQUEST_SUFFIX_TEMPLATE.format(consulate_id=consulate_id)
+    request_url = schedule_base + "/appointment" + suffix
     request_header_cookie = "".join(
         [f"{cookie['name']}={cookie['value']};" for cookie in driver.get_cookies()]
     )
@@ -199,7 +200,52 @@ def get_available_dates(
     return dates
 
 
+def find_target_date(dates: List[datetime.date]) -> Union[datetime.date, None]:
+    earliest_acceptable_date = datetime.strptime(EARLIEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
+    latest_acceptable_date = datetime.strptime(LATEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
+    for candidate in sorted(dates):
+        if not (earliest_acceptable_date <= candidate <= latest_acceptable_date):
+            continue
+        excluded = False
+        for start, end in EXCLUSION_DATE_RANGES:
+            if datetime.strptime(start, "%Y-%m-%d").date() <= candidate <= datetime.strptime(end, "%Y-%m-%d").date():
+                log_message(f"Skipping {candidate}: falls in excluded date range {start} to {end}")
+                excluded = True
+                break
+        if not excluded:
+            return candidate
+    return None
+
+
+def try_book(driver: WebDriver, target_date: datetime.date, consulate_id: int, consulate_name: str) -> Union[bool, None]:
+    """Attempt to book target_date at the given consulate.
+    Returns True on success/stop, None if booking failed but polling should continue."""
+    log_message(f"FOUND SLOT ON {target_date} at {consulate_name}!!!")
+    try:
+        if legacy_reschedule(driver, target_date, consulate_id):
+            log_message("SUCCESSFULLY RESCHEDULED!!!")
+            send_notification(
+                f"Visa Appointment Rescheduled for {target_date}",
+                f"Your visa appointment has been successfully rescheduled to {target_date} at {consulate_name} consulate."
+            )
+            return True
+        return None
+    except UnverifiedReschedule as e:
+        log_message(f"STOPPING: {e}")
+        send_notification(
+            "Visa Rescheduler: MANUAL VERIFICATION NEEDED",
+            f"The rescheduler clicked confirm for {target_date} at {consulate_name} but could not verify success. "
+            "Please log in to ais.usvisa-info.com and check your appointment. The program has stopped to avoid wasting reschedule attempts."
+        )
+        return True
+    except Exception as e:
+        log_message(f"Rescheduling failed: {e}")
+        traceback.print_exc()
+        return None
+
+
 def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
+    global soft_ban_streak
     date_request_tracker = RequestTracker(
         retryCount if (retryCount > 0) else DATE_REQUEST_MAX_RETRY,
         DATE_REQUEST_DELAY * retryCount if (retryCount > 0) else DATE_REQUEST_MAX_TIME
@@ -208,65 +254,45 @@ def reschedule(driver: WebDriver, retryCount: int = 0) -> bool:
         if seconds_until_poll_window() > 0:
             log_message("Polling window closed - ending session until it reopens")
             return False
-        dates = get_available_dates(driver, date_request_tracker)
-        if dates is None:
-            log_message("Error occured when requesting available dates")
+
+        cycle_results = {}  # consulate name -> list[date] | None (None = request error)
+        for idx, name in enumerate(USER_CONSULATES):
+            if idx > 0:
+                sleep(random.uniform(2, 5))  # small human-like gap between consulates
+            consulate_id = CONSULATES[name]
+            dates = get_available_dates(driver, date_request_tracker, consulate_id)
+            cycle_results[name] = dates
+            if dates:
+                target_date = find_target_date(dates)
+                if target_date is not None:
+                    result = try_book(driver, target_date, consulate_id, name)
+                    if result is True:
+                        return True
+                    # booking failed (slot gone / error) - keep polling other consulates
+
+        responded = [v for v in cycle_results.values() if v is not None]
+        if not responded:
+            log_message("Error occured when requesting available dates (all consulates)")
             sleep(jittered_delay(DATE_REQUEST_DELAY))
             continue
-        if len(dates) == 0:
+        if all(len(v) == 0 for v in responded):
+            # every consulate that responded returned an empty list -> server busy / soft-ban
             raise SoftBanDetected
-        global soft_ban_streak
         if soft_ban_streak > 0:
             log_message("Date list is flowing again - resetting soft-ban backoff")
             soft_ban_streak = 0
-        earliest_acceptable_date = datetime.strptime(EARLIEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
-        latest_acceptable_date = datetime.strptime(LATEST_ACCEPTABLE_DATE, "%Y-%m-%d").date()
-        target_date = None
-        for candidate in sorted(dates):
-            if not (earliest_acceptable_date <= candidate <= latest_acceptable_date):
-                continue
-            excluded = False
-            for i, (start, end) in enumerate(EXCLUSION_DATE_RANGES, 1):
-                if datetime.strptime(start, "%Y-%m-%d").date() <= candidate <= datetime.strptime(end, "%Y-%m-%d").date():
-                    log_message(f"Skipping {candidate}: falls in excluded date range {start} to {end}")
-                    excluded = True
-                    break
-            if not excluded:
-                target_date = candidate
-                break
-        if target_date is not None:
-            log_message(f"FOUND SLOT ON {target_date}!!!")
-            try:
-                if legacy_reschedule(driver, target_date):
-                    log_message("SUCCESSFULLY RESCHEDULED!!!")
-                    send_notification(
-                        f"Visa Appointment Rescheduled for {target_date}",
-                        f"Your visa appointment has been successfully rescheduled to {target_date} at {USER_CONSULATE} consulate."
-                    )
-                    return True
-                return False
-            except UnverifiedReschedule as e:
-                log_message(f"STOPPING: {e}")
-                send_notification(
-                    "Visa Rescheduler: MANUAL VERIFICATION NEEDED",
-                    f"The rescheduler clicked confirm for {target_date} at {USER_CONSULATE} but could not verify success. "
-                    "Please log in to ais.usvisa-info.com and check your appointment. The program has stopped to avoid wasting reschedule attempts."
-                )
-                return True
-            except Exception as e:
-                log_message(f"Rescheduling failed: {e}")
-                traceback.print_exc()
-                continue
-        else:
-            delay = jittered_delay(DATE_REQUEST_DELAY)
-            next_check = (datetime.now() + timedelta(seconds=delay)).strftime("%H:%M")
-            log_message(
-                f"{len(dates)} dates available, earliest {min(dates)} "
-                f"(outside {EARLIEST_ACCEPTABLE_DATE}..{LATEST_ACCEPTABLE_DATE}). Next check ~{next_check}"
-            )
-            sleep(delay)
-            continue
-        sleep(jittered_delay(DATE_REQUEST_DELAY))
+
+        summary = ", ".join(
+            (f"{name}: {len(v)} (earliest {min(v)})" if v else f"{name}: 0")
+            for name, v in cycle_results.items() if v is not None
+        )
+        delay = jittered_delay(DATE_REQUEST_DELAY)
+        next_check = (datetime.now() + timedelta(seconds=delay)).strftime("%H:%M")
+        log_message(
+            f"No acceptable date in {EARLIEST_ACCEPTABLE_DATE}..{LATEST_ACCEPTABLE_DATE}. "
+            f"[{summary}]. Next check ~{next_check}"
+        )
+        sleep(delay)
     return False
 
 
