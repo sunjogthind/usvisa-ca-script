@@ -112,7 +112,7 @@ SOFT_BAN_COOLDOWN_MAX = 60 * 60
 # Only poll during these local hours (24h). Slots are released during business
 # hours; polling overnight just burns requests and looks bot-like.
 # Set POLL_START_HOUR = POLL_END_HOUR to disable and poll 24/7.
-POLL_START_HOUR = 6
+POLL_START_HOUR = 7
 POLL_END_HOUR = 20
 
 # Rotated per session so repeated visits don't share one fingerprint.
